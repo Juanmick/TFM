@@ -1,0 +1,2200 @@
+---
+title: "TFM: Supermarket sales 2019"
+author: "by [Juan Manuel Ortiz](https://www.linkedin.com/in/juan-manuel-ortiz-10956a80/)"
+linkedin: "https://www.linkedin.com/in/juan-manuel-ortiz-10956a80/"
+github: "https://github.com/juanmick"
+date: "11/09/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    
+---
+
+# TFM: SUPERMARKET SALES 2019
+
+# 1. Carga de librerias 
+
+
+```{r Librerias, message=FALSE, warning=FALSE}
+
+# carga de librerias
+library(plyr)
+library(dplyr)
+library(caret)
+library(class)
+library(cluster)
+library(clValid)
+library(cvms)
+library(dataPreparation)
+library(data.table)
+library(DMwR)
+library(extrafont)
+loadfonts(device = "win")
+library(e1071)
+library(fastDummies)
+library(factoextra)
+library(FactoMineR)
+library(fpc)
+library(gbm)
+library(ggcorrplot)
+library(ggimage)
+library(ggplot2)
+library(ggradar)
+library(gmodels)
+library(gridExtra)
+library(Hmisc)
+library(hrbrthemes)
+library(inspectdf) 
+library(knitr)
+library(kableExtra)
+library(lubridate)
+library(MASS)
+library(MLmetrics)
+library(modeest)
+library(NbClust)
+library(purrr)
+library(randomForest)
+library(ranger)
+library(readr)
+library(ROCR)
+library(rpart)
+library(rsvg)
+library(skimr)
+library(tidyverse)
+library(TraMineR)
+library(vegan)
+library(viridis)
+library(xgboost)
+library(tidyr)
+
+
+```
+
+
+# 2. Carga del conjunto de datos 
+
+
+```{r loaddataset}
+
+rutacsv <- "https://raw.githubusercontent.com/Juanmick/TFM/master/supermarket_sales%20-%20Sheet1.csv"
+
+supermarket <- read.csv(rutacsv)
+
+```
+
+
+# 3. Análisis básico del conjunto de datos 
+
+
+```{r analisis}
+
+head(supermarket)
+
+str(supermarket)
+
+glimpse(supermarket)
+
+describe(supermarket) 
+
+#mediana precio unidad 55.23
+#mediana cantidad 5
+#mediana rating 7
+summary(supermarket)
+
+
+
+#Ningún NA's
+sapply(supermarket, function(x) sum(is.na(x)))
+
+
+```
+
+
+# 4. Explorando el conjunto de datos 
+
+
+```{r EDA, warning=FALSE}
+
+#REALIZAMOS EL ANALISIS EDA DEL CONJUNTO DE DATOS PARA HACERNOS UNA IDEA DE LAS VARIABLES
+
+# categorical plot / variables categóricas
+x <- inspect_cat(supermarket) 
+show_plot(x)
+
+# correlations in numeric columns / correlación en columnas númericas
+x <- inspect_cor(supermarket)
+show_plot(x)
+
+# feature imbalance bar plot / niveles más comunes en variables categoricas
+x <- inspect_imb(supermarket)
+show_plot(x)
+
+# memory usage barplot / uso de memoria
+x <- inspect_mem(supermarket)
+show_plot(x)
+
+
+# missingness barplot / datos ausentes
+x <- inspect_na(supermarket)
+show_plot(x)
+
+# histograms for numeric columns / histogramas para variables numericas
+x <- inspect_num(supermarket)
+show_plot(x)
+
+# barplot of column types / tipos de columnas
+x <- inspect_types(supermarket)
+show_plot(x)
+
+```
+
+
+# 5. Tratamiento del conjunto de datos 
+
+
+```{r tratamiento}
+
+
+supermarket$Date1 <- as.Date(supermarket$Date, "%m/%d/%Y")
+
+temp <- "https://github.com/Juanmick/TFM/blob/master/temp.rds?raw=true"
+
+temperaturas <- readRDS(url(temp))
+
+#OUTER JOIN PARA AÑADIR COLUMNAS DE TEMPERATURA
+supermarket <- merge(x = supermarket, y = temperaturas, by = c("Date1","City" ), all = TRUE)
+
+#Unimos columnas de hora y fecha
+supermarket<-unite(supermarket, datetime,c(12:13),  sep = " ")
+
+#Convertimos en formato as.POSIXct
+supermarket$datetime <- as.POSIXct(supermarket$datetime,format="%m/%d/%Y %H:%M")
+
+#Extraemos el dia de la semana en número
+supermarket$day <- wday(supermarket$datetime)
+
+#Extraemos el mes del año en número
+supermarket$month <- month(supermarket$datetime)
+
+#Extraemos la semana del año
+supermarket$week <- week(supermarket$datetime)
+
+#Extraemos la hora de la compra
+supermarket$hour <- hour(supermarket$datetime)
+
+#Extraemos el día del mes en número
+supermarket$daynum <- day(supermarket$datetime)
+
+#Simplificamos las categorias de la variable Product Line
+supermarket$Product.line[supermarket$Product.line == "Health and beauty"] <- "Health&Beauty"
+supermarket$Product.line[supermarket$Product.line == "Electronic accessories"] <- "Electronic"
+supermarket$Product.line[supermarket$Product.line == "Home and lifestyle"] <- "Home&Lifestyle"
+supermarket$Product.line[supermarket$Product.line == "Sports and travel"] <- "Sports&Travel"
+supermarket$Product.line[supermarket$Product.line == "Food and beverages"] <- "Food&Beverages"
+supermarket$Product.line[supermarket$Product.line == "Fashion accessories"] <- "Fashion_accessories"
+
+#ELIMINAR
+supermarket$Date1 <- NULL
+
+#eliminamos la columna por ser igual que city
+supermarket$Branch <- NULL
+
+#eliminamos la columna por ser constante
+supermarket$gross.margin.percentage <- NULL
+
+#eliminamos la columna por ser igual que tax
+supermarket$gross.income <- NULL
+
+#eliminamos la columna por no aportar nada
+supermarket$Invoice.ID <- NULL
+
+#Eliminamos NA's generados por la variable temperatura
+supermarket <- na.omit(supermarket)
+
+#guardamos el dataset 
+saveRDS(supermarket, file = "supermarket.rds")
+
+
+```
+
+
+# 6. Análisis descriptivo 
+
+
+## 6.1 Datos de análisis y tablas
+
+
+```{r descriptivo1}
+# ANALISIS SI EL CLIENTE ES MIEMBRO
+
+miembros <- filter(supermarket, Customer.type == "Member")
+
+summary(miembros)
+#mediana precio unidad  56.04
+#mediana cantidad 5
+#mediana rating 7
+#mediana total 266
+
+IngresosMiembros = sum(miembros$Total) 
+IngresosMiembros #164223
+CantidadesMiembros = sum(miembros$Quantity) 
+CantidadesMiembros #2785
+ModaMiembroGenero = mlv(miembros$Gender, method = "mfv") 
+ModaMiembroGenero #mujeres
+kable(table(miembros$Gender),caption = "Frecuencia Genero(Miembro)") 
+#261 mujeres
+ModaMiembroProductos = mlv(miembros$Product.line, method = "mfv") 
+ModaMiembroProductos #Food&Beverages 94
+kable(table(miembros$Product.line),caption = "Frecuencia Productos(Miembro)")
+kable(table(miembros$Payment),caption = "Frecuencia Pago(Miembro)") 
+#172 Credit card
+kable(table(miembros$day),caption = "Frecuencia dias(Miembro)") 
+#90 martes
+kable(table(hour(miembros$datetime)),caption = "Frecuencia Horas(Miembro)") 
+# 19:00 61compras 
+ModaMiembroRating = mlv(miembros$Rating, method = "mfv") 
+ModaMiembroRating #6.6 (14)y 9.5 (14)
+kable(table(miembros$Rating),caption = "Frecuencia Rating(Miembro)")
+
+# ANALISIS SI EL CLIENTE ES NORMAL
+
+normal <- filter(supermarket, Customer.type == "Normal")
+summary(normal)
+#mediana precio unidad 54.28
+#mediana cantidad 5
+#mediana rating 7
+#mediana total 237.43
+
+IngresosNormal = sum(normal$Total) 
+IngresosNormal #158743.3
+CantidadesNormal = sum(normal$Quantity) 
+CantidadesNormal #2725
+ModaNormalGenero = mlv(normal$Gender, method = "mfv") 
+ModaNormalGenero #hombres
+kable(table(normal$Gender),caption = "Frecuencia Genero(Normal)") #259 hombres
+ModaNormalProductos = mlv(normal$Product.line, method = "mfv") 
+ModaNormalProductos #Electronic 92 y Fashion_accessories 92
+kable(table(normal$Product.line),caption = "Frecuencia Productos(Normal)")
+kable(table(normal$Payment),caption = "Frecuencia Pagos(Normal)") #184 ewallet
+kable(table(normal$day),caption = "Frecuencia Dias(Normal)") #82 sabado
+kable(table(hour(normal$datetime)),caption = "Frecuencia Horas(Normal)") #  10:00 59 compras
+ModaNormalRating = mlv(normal$Rating, method = "mfv") 
+ModaNormalRating #6.2
+
+# Total de ingresos cada día
+tapply(supermarket$Total, supermarket$day, FUN=sum)
+
+# Total de ingresos cada día y de total de cantidad de unidades vendidas
+aggregate(cbind(supermarket$Total,supermarket$Quantity), by=list(day=supermarket$day), FUN=sum)
+
+# Valoracion media cada día
+aggregate(supermarket$Rating, by=list(day=supermarket$day), FUN=mean)
+
+# Cantidades vendidas cada dia
+kable(addmargins(table(supermarket$Quantity, supermarket$day)),caption = "Cantidades vendidas cada día") %>%
+  kable_styling("striped", "condensed", full_width = F) %>%
+  column_spec(1, bold = T) %>%
+  row_spec(0, bold = T) %>%
+  row_spec(11, bold = T, color = "white", background = "#D7261E")%>%
+  column_spec(9, bold = T, color = "white", background = "#D7261E")
+
+# Porcentaje de ventas cada día
+kable(addmargins(prop.table(table(supermarket$Quantity, supermarket$day))*100),caption = "Porcentaje de ventas al día") %>%
+  kable_styling("striped", "condensed", full_width = F) %>%
+  column_spec(1, bold = T) %>%
+  row_spec(0, bold = T) %>%
+  row_spec(11, bold = T, color = "white", background = "#D7261E")%>%
+  column_spec(9, bold = T, color = "white", background = "#D7261E")
+```
+
+
+## 6.2 Gráficos
+
+
+```{r graficos, echo=TRUE, warning=FALSE}
+windowsFonts("Arial" = windowsFont("Arial"))
+
+
+supermarket$date <- as.Date(supermarket$datetime)
+
+
+#Agrupar por días y mes con la suma de Total y Quantity
+
+pordias <- supermarket %>% 
+  group_by(date,month) %>% 
+  summarise(Total = sum(Total), Quantity = sum(Quantity))
+
+# GRAFICO DE INGRESOS TOTALES
+
+ggplot(data = pordias, aes(x = date, y = Total)) + 
+  geom_line(color = "#00AFBB", size = 1) +
+  stat_smooth(method="loess", colour="red") + 
+  geom_hline(yintercept = mean(pordias$Total),linetype="dashed", color="blue") +
+  annotate(geom="text", x=as.Date("2019-01-01"), y=3628,label="Media", size=2.5) +
+  xlab("Mes") +
+  theme_ipsum() + 
+  ggtitle("Ingresos totales")
+
+#GRAFICO DE CANTIDADES TOTALES VENDIDAS
+
+ggplot(data = pordias, aes(x = date, y = Quantity)) + 
+  geom_line(color = "#00AFBB", size = 1) +
+  stat_smooth(method="loess", colour="red") + 
+  geom_hline(yintercept = mean(pordias$Quantity),linetype="dashed", color="blue") +
+  annotate(geom="text", x=as.Date("2019-01-01"), y=61.91,label="Media", size=2.5) +
+  xlab("Mes") +
+  theme_ipsum() + 
+  ggtitle("Cantidades totales vendidas")
+
+
+#AGRUPAMOS POR FECHA, MES Y CIUDAD CON SUMAS TOTALES DE INGRESOS Y CANTIDADES
+
+pormes <- supermarket %>% 
+  group_by(date,month,City) %>% 
+  summarise(Total = sum(Total), Quantity = sum(Quantity))
+
+#INGRESOS TOTALES POR MES CON FACETAS DE CIUDADES
+ggplot(data = pormes, aes(x = date, y = Total)) + 
+  geom_line()+stat_smooth(method="loess", colour="red")+facet_wrap(~City,scale = "free") +
+  geom_hline(yintercept = mean(pormes$Total),linetype="dashed", color="blue") +
+  xlab("Mes") +
+  theme_ipsum() + 
+  ggtitle("Ingresos totales por mes según ciudades")
+
+#CANTIDADES POR MES CON FACETAS DE CIUDADES
+ggplot(data = pormes, aes(x = date, y = Quantity)) + 
+  geom_line() +
+  stat_smooth(method="loess", colour="red") +
+  facet_wrap(~City,scale = "free") +
+  geom_hline(yintercept = mean(pormes$Quantity),linetype="dashed", color="blue") +
+  xlab("Mes") +
+  theme_ipsum() + 
+  ggtitle("Cantidades totales por mes según ciudades")
+
+
+#AGRUPAMOS POR DIA DE LA SEMANA E INGRESOS Y CANTIDADES TOTALES
+
+pordia <- supermarket %>% 
+  group_by(day) %>% 
+  summarise(Total = sum(Total), Quantity = sum(Quantity))
+
+pordia$day <- as.factor(pordia$day)
+
+#GRAFICO INGRESOS TOTALES CADA DIA DE LA SEMANA
+
+ggplot(data = pordia, aes(x = day, y = Total, fill=day)) + 
+  geom_col(color = "#00AFBB", size = 1) + 
+  geom_hline(yintercept = mean(pordia$Total),linetype="dashed", color="blue") +
+  xlab("Dias semana") +
+  theme_ipsum() + 
+  scale_x_discrete(breaks = c(1,2,3,4,5,6,7), labels = c("Lunes", "Martes", 'Miercoles','Jueves','Viernes','Sabado','Domingo')) + 
+  theme(axis.text.x = element_text(angle = 45, size=9)) +
+  coord_flip() + 
+  scale_fill_discrete(name = "Días", labels = c("Lunes", "Martes", 'Miercoles','Jueves','Viernes','Sabado','Domingo')) +
+  scale_y_continuous(breaks = c(0,10000,20000,30000,40000,50000))+
+  ggtitle("Ingresos totales cada dia de la semana")
+
+#GRAFICO CANTIDADES TOTALES VENDIDAS CADA DIA DE LA SEMANA
+
+ggplot(data = pordia, aes(x = day, y = Quantity, fill=day)) + 
+  geom_col(color = "#00AFBB", size = 1) + 
+  geom_hline(yintercept = mean(pordia$Quantity),linetype="dashed", color="blue") +
+  xlab("Dias semana") +
+  theme_ipsum() + 
+  scale_x_discrete(breaks = c(1,2,3,4,5,6,7), labels = c("Lunes", "Martes", 'Miercoles','Jueves','Viernes','Sabado','Domingo')) + 
+  theme(axis.text.x = element_text(angle = 45, size=9)) +
+  coord_flip() + 
+  scale_fill_discrete(name = "Días", labels = c("Lunes", "Martes", 'Miercoles','Jueves','Viernes','Sabado','Domingo')) +
+  scale_y_continuous(breaks = c(0,200,400,600,800)) +
+  ggtitle("Cantidades totales vendidas según dia de la semana")
+
+
+#NUMERO DE TRANSACCIONES A LA HORA POR MES
+
+monthly_trend <- ddply(supermarket, .(Hour = supermarket$hour, Month = supermarket$month), nrow)
+monthly_trend$Month <- as.factor(monthly_trend$Month)
+
+#GRAFICO DE LINEAS
+
+ggplot(monthly_trend, aes(Hour, V1, group=Month)) +
+  geom_line(aes(color=Month),size =2) +
+  ggtitle(label = "Transacciones cada hora según mes") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust=0.5, lineheight = .8, face = "bold")) +
+  xlab("Hour") +
+  ylab("Número de transacciones") +
+  geom_hline(yintercept = mean(monthly_trend$V1))
+
+#GRAFICO DE BARRAS
+
+ggplot(monthly_trend, aes(Hour, V1, fill=Month)) +
+  geom_bar(stat = "identity") +
+  ggtitle(label = "Transacciones cada hora según mes") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust=0.5, lineheight = .8, face = "bold"))+
+  xlab("Hour") +
+  ylab("Número de transacciones")
+
+
+#NUMERO DE TRANSACCIONES A LA HORA POR DIA
+
+daily_trend <- ddply(supermarket, .(Hour = supermarket$hour, Day = supermarket$day), nrow)
+daily_trend$Day <- as.factor(daily_trend$Day)
+
+#GRAFICO DE LINEAS
+
+ggplot(daily_trend, aes(Hour, V1, group=Day)) +
+  geom_line(aes(color=Day), size =2)+ggtitle(label = "Transacciones cada hora según día de la semana") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust=0.5, lineheight = .8, face = "bold")) +
+  xlab("Hour") +
+  ylab("Numero de transacciones") +
+  geom_hline(yintercept = mean(daily_trend$V1))
+
+#GRAFICO DE BARRAS
+
+ggplot(daily_trend, aes(Hour, V1, fill=Day)) +
+  geom_bar(stat = "identity") +
+  ggtitle(label = "Transacciones cada hora según día de la semana") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust=0.5, lineheight = .8, face = "bold")) +
+  xlab("Hour") +
+  ylab("Numero de transacciones")
+
+```
+
+
+ANALISIS CLIENTES 
+
+
+```{r clientes, warning=FALSE}
+
+#GENERO/PRODUCTO / RATING POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Rating, fill = Product.line)) + 
+    geom_boxplot(
+      varwidth = TRUE)+ #tamaño proporcional
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=10, color="red", fill="red")+
+    facet_wrap(~Customer.type) +theme_ipsum() 
+
+
+#GENERO/PRODUCTO / QUANTITY POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Quantity, fill = Product.line)) + 
+    geom_boxplot(outlier.colour="red",# custom outliers
+        outlier.fill="red",
+        outlier.size=3,
+      varwidth = TRUE)+ #tamaño proporcional
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=10, color="red", fill="red")+
+    facet_wrap(~Customer.type)+theme_ipsum() 
+
+#GENERO/PRODUCTO / TOTAL POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Total, fill = Product.line)) + 
+    geom_boxplot(outlier.colour="red",# custom outliers
+        outlier.fill="red",
+        outlier.size=3,
+      varwidth = TRUE)+ #tamaño proporcional
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=10, color="red", fill="red")+
+    facet_wrap(~Customer.type) +theme_ipsum() 
+
+##########################
+
+#PAGO/GENERO / TOTAL POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Total, fill = Payment)) + 
+    geom_boxplot(outlier.colour="red",# custom outliers
+        outlier.fill="red",
+        outlier.size=3,
+      varwidth = TRUE)+ #tamaño proporcional
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=10, color="red", fill="red")+
+    facet_wrap(~Customer.type) +theme_ipsum() 
+
+#PAGO/GENERO / QUANTITY POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Quantity, fill = Payment)) + 
+    geom_boxplot(outlier.colour="red",# custom outliers
+        outlier.fill="red",
+        outlier.size=3,
+      varwidth = TRUE)+ #tamaño proporcional
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=10, color="red", fill="red")+
+    facet_wrap(~Customer.type)+theme_ipsum() 
+
+#PAGO/GENERO / RATING POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Rating, fill = Payment)) + 
+    geom_boxplot(outlier.colour="red",# custom outliers
+        outlier.fill="red",
+        outlier.size=3,
+      varwidth = TRUE)+ #tamaño proporcional
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=10, color="red", fill="red") +
+    facet_wrap(~Customer.type)+theme_ipsum() 
+
+#############################
+#PRECIO
+
+ggplot(supermarket, aes(x=as.factor(Gender), y=Unit.price, fill = Payment)) + 
+    geom_boxplot(outlier.colour="red",# custom outliers
+        outlier.fill="red",
+        outlier.size=3,
+      varwidth = TRUE)+ #tamaño proporcional
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=10, color="red", fill="red") +
+    facet_wrap(~Customer.type)+theme_ipsum() 
+
+
+ggplot(supermarket, aes(x=as.factor(Gender), y=Unit.price, fill = Product.line)) + 
+    geom_boxplot(outlier.colour="red",# custom outliers
+        outlier.fill="red",
+        outlier.size=3,
+      varwidth = TRUE)+ #tamaño proporcional
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=10, color="red", fill="red") +
+    facet_wrap(~Customer.type)+theme_ipsum() 
+
+ggplot(supermarket, aes(x=as.factor(Quantity), y=Unit.price))+geom_boxplot()
+
+
+#########################################################
+#LO MISMO QUE LO ANTERIOR PERO CON VIOLINES
+
+#PAGO/ GENERO / RATING POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Rating, fill = Payment)) + 
+    geom_violin()+ 
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=7, color="red", fill="red") +
+    facet_wrap(~Customer.type)+
+  coord_flip()+
+  scale_fill_viridis(discrete=TRUE)+
+  scale_color_viridis(discrete=TRUE)+
+  theme_ipsum() +
+  theme(legend.position="none")+
+  ggtitle("A Violin wrapping a boxplot")
+
+#PAGO/GENERO / QUANTITY POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Quantity, fill = Payment)) + 
+    geom_violin()+ 
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=7, color="red", fill="red") +
+    facet_wrap(~Customer.type)+
+  coord_flip()+
+  scale_fill_viridis(discrete=TRUE)+
+  scale_color_viridis(discrete=TRUE)+
+  theme_ipsum() +
+  theme(legend.position="none")+
+  ggtitle("A Violin wrapping a boxplot")
+
+#PAGO/GENERO / TOTAL POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Total, fill = Payment)) + 
+    geom_violin()+ 
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=7, color="red", fill="red") +
+    facet_wrap(~Customer.type)+
+  coord_flip()+
+  scale_fill_viridis(discrete=TRUE)+
+  scale_color_viridis(discrete=TRUE)+
+  theme_ipsum() +
+  theme(legend.position="none")+
+  ggtitle("A Violin wrapping a boxplot")
+
+#GENERO/PRODUCTO / TOTAL POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Total, fill = Product.line)) + 
+    geom_violin()+ 
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=7, color="red", fill="red") +
+    facet_wrap(~Customer.type)+
+  coord_flip()+
+  scale_fill_viridis(discrete=TRUE)+
+  scale_color_viridis(discrete=TRUE)+
+  theme_ipsum() +
+  theme(legend.position="none")+
+  ggtitle("A Violin wrapping a boxplot")
+
+
+#GENERO/PRODUCTO / QUANTITY POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Quantity, fill = Product.line)) + 
+    geom_violin()+ 
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=7, color="red", fill="red") +
+    facet_wrap(~Customer.type)+
+  coord_flip()+
+  scale_fill_viridis(discrete=TRUE)+
+  scale_color_viridis(discrete=TRUE)+
+  theme_ipsum() +
+  theme(legend.position="none")+
+  ggtitle("A Violin wrapping a boxplot")
+
+#GENERO/PRODUCTO / RATING POR TIPO CLIENTE
+ggplot(supermarket, aes(x=as.factor(Gender), y=Rating, fill = Product.line)) + 
+    geom_violin()+ 
+    xlab("Gender")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=7, color="red", fill="red") +
+    facet_wrap(~Customer.type)+
+  coord_flip()+
+  scale_fill_viridis(discrete=TRUE)+
+  scale_color_viridis(discrete=TRUE)+
+  theme_ipsum() +
+  theme(legend.position="none")+
+  ggtitle("A Violin wrapping a boxplot")
+
+```
+
+
+ANALISIS DE RELACIONES
+
+
+```{r relaciones, warning=FALSE}
+
+###################################################
+
+#RELACION ENTRE CANTIDAD Y TOTAL
+
+#CANTIDAD/GENERO / TOTAL  #IMPORTANTE MUESTRA RELACION ENTRE A MÁS CANTIDAD MÁS INGRESOS
+ggplot(supermarket, aes(x=as.factor(Quantity), y=Total)) + 
+    geom_boxplot(fill = '#99d8c9', outlier.colour="red",# custom outliers
+        outlier.fill="red",
+        outlier.size=3,
+      varwidth = TRUE)+ #tamaño proporcional
+    xlab("Cantidad")+
+    geom_jitter(color="black", size=0.4, alpha=0.9) +  scale_fill_viridis(discrete = TRUE, alpha=0.6)+            stat_summary(fun=mean, geom="point", shape=20, size=7, color="red", fill="red")+
+  ggtitle("Relación Quantity/Total")+
+  theme_ipsum()
+
+#RELACION ENTRE PRECIO Y TOTAL
+
+ggplot(supermarket, aes(x=Unit.price, y=Total,))+geom_jitter()+geom_smooth()+ggtitle("Relación Price/Total")+
+  theme_ipsum()
+
+#NO RELACION ENTRE CANTIDAD Y PRECIO
+
+ggplot(supermarket, aes(x=Quantity, y=Unit.price, fill=Product.line))+geom_jitter()+geom_smooth()+ggtitle("Relación Quantity/Price")+
+  theme_ipsum()
+
+ggplot(supermarket, aes(x=hour, y=Total, fill=Product.line))+geom_jitter()+geom_smooth()+ggtitle("Relación Total/Hora")+
+  theme_ipsum()
+
+
+```
+
+
+# 7. Clustering 
+
+
+```{r transforma, warning=FALSE}
+# LEVES TRANSFORMACIONES
+
+#Convertimos a dummy las variables categoricas
+
+results <- fastDummies::dummy_cols(supermarket,remove_first_dummy = TRUE)
+
+#Eliminamos las variables antiguas para quedarnos con los dummys
+results[,1:4] <- NULL
+results$Payment <- NULL
+results$datetime <- NULL
+results$date <- NULL
+
+
+# Escalamos el dataset
+
+resultsca <- scale(results)
+
+```
+
+
+## 7.1 Hallar mejor K para métodos no jerárquicos
+
+
+```{r mejork, warning=FALSE}
+
+#Establecemos semilla
+set.seed(20) # para reproducir el mismo ejemplo
+
+#HALLAR MEJOR K PARA NUESTROS CLUSTER, DIFERENTES METODOS:
+
+#Criterio del codo
+wss <- (nrow(resultsca)-1)*sum(apply(resultsca,2,var)) 
+for (i in 2:10) wss[i] <- sum(kmeans(resultsca,centers=i)$withinss) 
+# 10 nº máximo de clusters a analizar 
+plot(1:10, wss, type="b", xlab="Número de Clusters",ylab="Suma de cuadrados dentro de los clusters",main="Cálculo del número óptimo de clusters con el criterio del codo")
+
+
+# Elbow method 
+fviz_nbclust(resultsca, kmeans, method = "wss") +
+    geom_vline(xintercept = 3, linetype = 2)+
+  labs(subtitle = "Elbow method")
+
+
+# Silhouette method
+
+fviz_nbclust(resultsca, kmeans, method = "silhouette")+
+  labs(subtitle = "Silhouette method")
+
+
+# Gap statistic
+
+fviz_nbclust(resultsca, kmeans, nstart = 25,  method = "gap_stat", nboot = 50)+
+  labs(subtitle = "Gap statistic method")
+
+# Criterio Calinski  2 y 3
+
+model <- cascadeKM(resultsca, 1, 10, iter = 100)
+plot(model, sortg = TRUE)
+model$results[2,]
+
+# METODO GRAFICO CON INDEX DINDEX
+# method ward.D2
+NbClust(resultsca, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="dindex")
+# method kmeans
+NbClust(resultsca, distance="euclidean", min.nc=2, max.nc=10, method="kmeans", index="dindex")
+
+# METODO GRAFICO CON INDEX HUBERT
+# Method Ward.D2
+NbClust(resultsca, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="hubert")
+# Method kmeans
+NbClust(resultsca, distance="euclidean", min.nc=2, max.nc=10, method="kmeans", index="hubert")
+
+
+#NUMERO K RECOMENDADO SEGÚN 17 INDEX DISTINTOS MEDIANTE UN GRID
+
+gridk <- expand.grid(
+  method = c('kmeans','ward.D2','average'),
+  index = c('sdbw','sdindex','frey','ptbiserial','ratkowsky','beale','pseudot2','duda','db','cindex','kl','ball','ch','hartigan','dunn','gap','mcclain'),
+  numk = 0
+)
+
+for(i in 1:nrow(gridk)) {
+  res <- NbClust(resultsca, distance = "euclidean", min.nc = 2, max.nc = 10, method = gridk$method[i], index = gridk$index[i])
+gridk$numk[i] <- res$Best.nc
+}
+
+table(gridk$numk)
+#el numero de k=2  es el más recomendado
+
+```
+
+
+## 7.2 Método K-Means
+
+
+```{r kmeans}
+#MODELO CON KMEANS
+
+
+set.seed(20)
+k.means.fit <- kmeans(resultsca,2,25)
+
+print(k.means.fit)
+
+attributes(k.means.fit)
+
+# tamaño de cada cluster
+k.means.fit$size
+
+# dibujo del cluster
+plotcluster(resultsca, k.means.fit$cluster)
+
+fviz_cluster(k.means.fit, data = resultsca)
+
+# Comprobando graficamente como queda con cada K
+
+k2 <- kmeans(resultsca, centers = 2, nstart = 25)
+k3 <- kmeans(resultsca, centers = 3, nstart = 25)
+k4 <- kmeans(resultsca, centers = 4, nstart = 25)
+k5 <- kmeans(resultsca, centers = 5, nstart = 25)
+p1 <- fviz_cluster(k2, geom = "point", data = resultsca) + ggtitle('k = 2')
+p2 <- fviz_cluster(k3, geom = "point", data = resultsca) + ggtitle('k = 3')
+p3 <- fviz_cluster(k4, geom = "point", data = resultsca) + ggtitle('k = 4')
+p4 <- fviz_cluster(k5, geom = "point", data = resultsca) + ggtitle('k = 5')
+
+grid.arrange(p1, p2, p3, p4, nrow=2)
+
+
+supe <- "https://github.com/Juanmick/TFM/blob/master/supermarket.rds?raw=true"
+
+supermarket <- readRDS(url(supe))
+
+# Creamos columna con los clientes que pertenecen a cada cluster
+supermarket$cluster <- k.means.fit$cluster
+
+df <- supermarket %>% group_by(cluster) %>%
+  summarise(mean=mean(Total))
+
+
+dfkm <- supermarket
+table(dfkm$cluster)
+
+#saveRDS(dfkm, file = "dfkm.rds")
+
+#dfkm <- readRDS("C:/TFM/dfkm.rds")
+
+# Caracteristicas cluster 1
+dfkm1 <- filter(dfkm, cluster == 1)
+describe(dfkm1)
+
+# Caracteristicas cluster 2
+dfkm2 <- filter(dfkm, cluster == 2)
+describe(dfkm2)
+
+```
+
+
+## 7.3 Método con PAM (Partitioning Around Medoids)
+
+
+```{r pam}
+
+#CLUSTER PAM
+#con 2 k
+set.seed(20)
+pam.res <- pam(resultsca, 2)
+resultadopam <- as.data.frame(pam.res$clustering)
+table(resultadopam)
+
+
+#Visualizing PAM clusters con fviz_cluster()
+ fviz_cluster(pam.res)
+# Change the color palette and theme
+fviz_cluster(pam.res, resultsca,
+   palette = "Set2", ggtheme = theme_minimal())
+
+#Para añadir la columna al dataset
+supermarket$cluster <- pam.res$clustering
+
+df <- supermarket %>% group_by(cluster) %>%
+  summarise(mean=mean(Total))
+
+dfpam <- supermarket
+table(dfpam$cluster)
+
+
+# Caracteristicas cluster 1
+dfpam1 <- filter(dfpam, cluster == 1)
+describe(dfpam1)
+
+# Caracteristicas cluster 2
+dfpam2 <- filter(dfpam, cluster == 2)
+describe(dfpam2)
+
+```
+
+
+## 7.4 Método con Hierarchical Cluster Analysis
+
+
+```{r hierarchical, warning=FALSE}
+
+
+set.seed(20)
+#CON HCLUST
+# Dissimilarity matrix, halla los valores de la distancia,necesario para hclust
+d <- dist(resultsca, method = "euclidean")
+
+# Hierarchical clustering using Complete Linkage
+hc1 <- hclust(d, method = "ward.D" )
+
+# Dibujamos el dendograma con los 2 cluster
+plot(hc1, cex = 0.6, hang = -1)
+rect.hclust(hc1, k = 2, border = 2:5)
+
+#Dibujo
+fviz_dend(x = hc1, k = 2, cex = 0.6) +
+  geom_hline(yintercept = 250, linetype = "dashed") +
+  labs(title = "Hierarchical clustering",
+       subtitle = "Method Ward.D, K=2")
+
+
+
+# Cortamos el dendograma en 2 grupos
+sub_grp <- cutree(hc1, k = 2)
+table(sub_grp)
+
+# Añadimos resultados del cluster al df
+dfh <- supermarket
+dfh$cluster <- sub_grp
+
+df <- dfh %>% group_by(cluster) %>%
+  summarise(mean=mean(Total))
+
+# Dibujamos los cluster
+fviz_cluster(list(data = resultsca, cluster = sub_grp))
+
+saveRDS(dfh, file = "dfh.rds")
+
+
+
+# Caracteristicas cluster 1
+dfh1 <- filter(dfh, cluster == 1)
+describe(dfh1)
+
+# Caracteristicas cluster 2
+dfh2 <- filter(dfh, cluster == 2)
+describe(dfh2)
+
+
+```
+
+
+# 8. Predicción de los grupos del cluster 
+
+## 8.1 Feature Engineering
+
+
+```{r feature, warning=FALSE}
+
+
+supermarket <- as.data.table(supermarket)
+
+
+#Creamos variables con las frecuencias
+supermarket[ , fe_city := .N , by = .(City)]
+supermarket[ , fe_gender := .N , by = .(Gender)]
+supermarket[ , fe_customer := .N , by = .(Customer.type)]
+supermarket[ , fe_product := .N , by = .(Product.line)]
+supermarket[ , fe_payment := .N , by = .(Payment)]
+
+
+#Creamos variable long y latitud
+# Mandalay long 21.959433, latitud 96.101045
+# Naypitaw 19.740465, 96.090555
+# Yangon 16.877067, 96.177399
+
+supermarket$longitude = ifelse(supermarket$City == "Mandalay", 21.959433, ifelse(supermarket$City == "Naypyitaw", 19.740465, 16.877067))
+
+supermarket$latitude = ifelse(supermarket$City == "Mandalay", 96.101045, ifelse(supermarket$City == "Naypyitaw", 96.090555, 96.177399))
+
+#creamos variable lonlat
+supermarket$fe_lonlat  <- sqrt(supermarket$longitude^2 + supermarket$latitude^2)
+
+#convertimos a dummies
+supermarket1 <- fastDummies::dummy_cols(supermarket,remove_first_dummy = TRUE)
+
+supermarket1[,1:4] <- NULL
+supermarket1$Payment <- NULL
+supermarket1$datetime <- NULL
+
+#NORMALIZAR LOS DATOS
+
+names (supermarket1)[1] = "UnitPrice"
+names (supermarket1)[3] = "Tax5"
+names (supermarket1)[21] = "CityNaypyitaw"
+names (supermarket1)[22] = "CityYangon"
+names (supermarket1)[23] = "CustomerTypeNormal"
+names (supermarket1)[24] = "GenderMale"
+names (supermarket1)[25] = "PLFashionAccessories"
+names (supermarket1)[26] = "PLFoodBeverages"
+names (supermarket1)[27] = "PLHealthBeauty"
+names (supermarket1)[28] = "PLHomeLifestyle"
+names (supermarket1)[29] = "PLSportsTravel"
+names (supermarket1)[30] = "PaymentCreditCard"
+names (supermarket1)[31] = "PaymentEwallet"
+
+
+supersca <- scale(supermarket1)
+supersca <- as.data.frame(supersca)
+
+saveRDS(supersca, file = "supersca.rds")
+
+
+supersca$cluster <- dfpam$cluster
+
+#semilla para obtener mismos valores
+set.seed(1234)
+validationIndex <- createDataPartition(supersca$cluster, p=0.70, list=FALSE)
+
+# Para validar
+my_test1  <- supersca[-validationIndex,]
+saveRDS(my_test1, file = "my_test1.rds")
+
+# Para entrenar
+my_train1 <- supersca[validationIndex,]
+saveRDS(my_train1, file = "my_train1.rds")
+
+prop.table(table(supersca$cluster))
+prop.table(table(my_test1$cluster))
+prop.table(table(my_train1$cluster))
+
+```
+
+
+## 8.2 K-Nearest-Neighbors
+
+
+```{r knn, warning=FALSE}
+#EJEMPLO KNN (K-Nearest-Neighbors)
+
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+set.seed(1234)
+knnpred <- knn(train = my_train1[,-32], 
+                       cl = my_train1[, 32], 
+                       test = my_test1[,-32], 
+                       k = 2)
+
+# Porcentaje de acierto 
+PredKNN = mean(knnpred == my_test1$cluster)
+print(paste0("Porcentaje de acierto/Accuracy: ",PredKNN ))
+
+
+cfm <- as.data.frame(table(Pred = knnpred, Obj = my_test1$cluster))
+
+# Errores de clasificacion
+errclasKNN <- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasKNN ))
+
+
+# Matriz de confusion
+
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+
+pred1 <- prediction(as.numeric(knnpred), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+RESULTADOS <-data.frame(modelo = ('knn'),
+                        accuracy =c(PredKNN),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasKNN)
+                        )
+
+              
+```
+
+
+## 8.3 Support Vector Machines
+
+
+```{r svm, warning=FALSE}
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+my_test1$cluster <- as.factor(my_test1$cluster)
+my_train1$cluster <- as.factor(my_train1$cluster)
+
+set.seed(1234)
+modeloSVM = train(form = cluster ~ ., data = my_train1, method = 'svmRadial')
+modeloSVM$bestTune
+pred_valid_SVM = predict(modeloSVM, newdata = my_test1[,-32])
+
+
+#MATRIZ CONFUSION
+cfm <- as.data.frame(table(Obj = my_test1$cluster, Pred = pred_valid_SVM))
+cfm
+
+# Errores de validacion
+errclasSVM <- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasSVM ))
+
+#MATRIZ CONFUSION
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+#Porcentaje de acierto
+predSVM = mean(pred_valid_SVM == my_test1$cluster)
+predSVM
+print(paste0("Porcentaje de acierto/Accuracy: ",predSVM ))
+
+pred1 <- prediction(as.numeric(pred_valid_SVM), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+z <-data.frame(modelo = ('svm'),
+                        accuracy =c(predSVM),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasSVM)
+                        )
+RESULTADOS <-rbind(RESULTADOS,z)
+```
+
+
+## 8.4 Generalized Linear Model 
+*Regresión
+
+
+```{r glm, warning=FALSE}
+
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+library(stats)
+
+#eliminamos variables correlacionadas
+modeloGLM <- glm(as.factor(cluster) ~ ., family = binomial, data = my_train1[,-4:-5])
+summary(modeloGLM) 
+#se aprecia el p valor en su ultima columna,  representa la relevancia estadística de la variable independiente como elemento predictivo
+
+pred_valid_GLM <- predict(modeloGLM, type = 'response', newdata = my_test1[,-4:-5])
+pred_valid_GLM <- ifelse(pred_valid_GLM > 0.5, 1, 0)
+pred_valid_GLM <- factor(pred_valid_GLM, levels = c("0", "1"), labels = c("1", "2"))
+
+
+cfm <- as.data.frame(table(Obj = my_test1$cluster, Pred = pred_valid_GLM))
+cfm
+
+# Errores de clasificacion
+errclasGLM <- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasGLM ))
+
+#Matriz confusion
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+predGLM = mean(pred_valid_GLM == my_test1$cluster)
+
+print(paste0("Porcentaje de acierto/Accuracy: ",predGLM ))
+
+pred1 <- prediction(as.numeric(pred_valid_GLM), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+z1 <-data.frame(modelo = ('glm'),
+                        accuracy =c(predGLM),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasGLM)
+                        )
+RESULTADOS <-rbind(RESULTADOS,z1)
+
+```
+
+
+## 8.5 Naive Bayes 
+
+
+```{r naive, warning=FALSE}
+
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+my_test1$cluster <- as.factor(my_test1$cluster)
+my_train1$cluster <- as.factor(my_train1$cluster)
+
+
+set.seed(1234)
+modeloBayes <- naiveBayes(cluster ~ ., data = my_train1)
+
+pred_valid_BAYES <- predict(modeloBayes, newdata = my_test1)
+
+cfm <- as.data.frame(table(Obj = my_test1$cluster, Pred = pred_valid_BAYES))
+cfm
+
+# Errores de clasificacion
+errclasBAYES <- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasBAYES ))
+
+# Matriz de confusion
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+#ACCURACY
+predBAYES = mean(pred_valid_BAYES == my_test1$cluster)
+print(paste0("Porcentaje de acierto/Accuracy: ",predBAYES ))
+
+
+pred1 <- prediction(as.numeric(pred_valid_BAYES), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+z2 <-data.frame(modelo = ('NaiveBayes'),
+                        accuracy =c(predBAYES),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasBAYES)
+                        )
+RESULTADOS <-rbind(RESULTADOS,z2)
+```
+
+
+## 8.6 Arbol de decisión RPART 
+
+
+```{r repart, warning=FALSE}
+
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+
+my_test1$cluster <- as.factor(my_test1$cluster)
+my_train1$cluster <- as.factor(my_train1$cluster)
+
+#Hallar mejor minsplit que es 5
+obj3 <- tune.rpart(cluster~., data = my_train1, minsplit = c(5,10,15))
+  summary(obj3)
+  plot(obj3)
+  
+set.seed(1234)
+modeloDT <- rpart(cluster ~ ., data = my_train1, minsplit = 5)
+
+pred_valid_DT <- predict(modeloDT, newdata = my_test1, type = 'class')
+
+cfm <- as.data.frame(table(Obj = my_test1$cluster, Pred = pred_valid_DT))
+cfm
+
+# Errores de clasificacion
+errclasDT <- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasDT ))#54 errores
+
+# Matriz de confusion
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+
+predRPART = mean(pred_valid_DT == my_test1$cluster)
+print(paste0("Porcentaje de acierto/Accuracy: ",predRPART )) 
+
+
+pred1 <- prediction(as.numeric(pred_valid_DT), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+z3 <-data.frame(modelo = ('rpart'),
+                        accuracy =c(predRPART),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasDT)
+                        )
+RESULTADOS <-rbind(RESULTADOS,z3)
+
+```
+
+
+## 8.7 Latent Dirichlet Allocation
+
+
+```{r lda, warning=FALSE}
+
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+
+lda <- lda(cluster ~ ., data = my_train1)
+coef(lda)
+
+pred <- predict(lda, my_test1)
+
+pred_valid_LDA <- as.numeric(pred$class)
+
+cfm <- as.data.frame(table(Obj = my_test1$cluster, Pred = pred_valid_LDA))
+cfm
+
+# Errores de clasificacion
+errclasLDA <- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasLDA )) 
+
+# Matriz de confusion
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+
+predLDA = mean(pred_valid_LDA == my_test1$cluster)
+predLDA
+print(paste0("Porcentaje de acierto/Accuracy: ",predLDA ))
+
+
+pred1 <- prediction(as.numeric(pred_valid_LDA), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+z4 <-data.frame(modelo = ('lda'),
+                        accuracy =c(predLDA),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasLDA)
+                        )
+RESULTADOS <-rbind(RESULTADOS,z4)
+
+```
+
+
+## 8.8 Adabag Boosting
+
+
+```{r adabag, warning=FALSE}
+
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+
+my_test1$cluster <- as.factor(my_test1$cluster)
+my_train1$cluster <- as.factor(my_train1$cluster)
+
+library(adabag)
+model = boosting(cluster~., data=my_train1, boos=TRUE, mfinal=50)
+print(names(model))
+
+model$importance
+
+
+pred = predict(model, my_test1)
+print(names(pred))
+
+print(pred$confusion)
+print(pred$error)
+
+pred_valid_ADABAG <- pred$class
+
+cfm <- as.data.frame(table(Obj = my_test1$cluster, Pred = pred_valid_ADABAG))
+cfm
+
+# Errores de clasificacion
+errclasADABAG<- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasADABAG ))
+
+# Matriz de confusion
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+
+
+predADABAG = mean(pred_valid_ADABAG == my_test1$cluster)
+predADABAG
+print(paste0("Porcentaje de acierto/Accuracy: ",predADABAG )) 
+
+pred1 <- prediction(as.numeric(pred_valid_ADABAG), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+z5 <-data.frame(modelo = ('adabag'),
+                        accuracy =c(predADABAG),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasADABAG)
+                        )
+RESULTADOS <-rbind(RESULTADOS,z5)
+
+#probabilidad de predecir cada clase
+result = data.frame(my_test1$cluster, pred$prob, pred$class)
+print(result)
+
+```
+
+
+## 8.9 Random Forest
+
+
+```{r randonforest, warning=FALSE}
+
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+my_test1$cluster <- as.factor(my_test1$cluster)
+my_train1$cluster <- as.factor(my_train1$cluster)
+
+
+set.seed(1234)
+
+#ELIMINAMOS VARIABLES COLINEALES Y MEJORAN LOS RESULTADOS
+clasificadorRF <- randomForest(cluster ~ ., data = my_train1[,-4:-5], ntree = 250)
+
+pred_valid_RF <- predict(clasificadorRF, newdata = my_test1[,-4:-5])
+
+cfm <- as.data.frame(table(Obj = my_test1$cluster, Pred = pred_valid_RF))
+cfm
+
+
+# Errores de clasificacion
+errclasRF <- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasRF ))
+
+# Matriz de confusion
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+
+predRF = mean(pred_valid_RF == my_test1$cluster)
+print(paste0("Porcentaje de acierto/Accuracy: ",predRF ))
+
+pred1 <- prediction(as.numeric(pred_valid_RF), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+z6 <-data.frame(modelo = ('randomForest'),
+                        accuracy =c(predRF),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasRF)
+                        )
+RESULTADOS <-rbind(RESULTADOS,z6)
+
+```
+
+
+## 8.10 Ranger
+
+
+```{r ranger, warning=FALSE}
+
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+#MODELO RANGER
+
+# Grid de hiperparametros
+hyper_grid <- expand.grid(
+  n.trees = c(100,150,250,500,750,2000),
+  node_size  = seq(3, 9, by = 2),
+  sampe_size = c(.55, .632, .70, .80),
+  OOB_RMSE   = 0
+)
+
+# Numero total de combinaciones
+nrow(hyper_grid)
+
+set.seed(1234)
+
+for(i in 1:nrow(hyper_grid)) {
+  
+  # Modelo
+  model <- ranger(
+    formula         = cluster ~ ., 
+    data            = my_train1, 
+    num.trees       = hyper_grid$n.trees[i],
+    min.node.size   = hyper_grid$node_size[i],
+    sample.fraction = hyper_grid$sampe_size[i],
+    seed            = 1234, 
+    write.forest = TRUE,
+    splitrule = "gini",
+    verbose = TRUE,
+    classification = TRUE,
+    keep.inbag = TRUE
+  )
+  
+  # añadimos OOB error
+  hyper_grid$OOB_RMSE[i] <- sqrt(model$prediction.error)
+}
+
+# MEJORES PARAMETROS
+hyper_grid %>% 
+  dplyr::arrange(OOB_RMSE) %>%
+  head(10)
+
+
+#MODELO CON LOS MEJORES PARAMETROS PROPORCIONADOS POR EL GRID ANTERIOR, CON EL VALOR DE OOB_RMSE MÁS BAJO
+set.seed(1234)
+fit <- ranger(
+              cluster ~. ,
+              data = my_train1,
+              num.trees = 750, 
+              importance = 'impurity',
+              write.forest = TRUE,
+              min.node.size = 3,
+              sample.fraction = .8, 
+              splitrule = "gini",
+              verbose = TRUE,
+              classification = TRUE,
+              keep.inbag = TRUE
+            )
+
+fit
+
+
+# variables importantes
+vars_imp <- fit$variable.importance
+vars_imp <- as.data.frame(vars_imp)
+vars_imp$myvar <- rownames(vars_imp)
+vars_imp <- as.data.table (vars_imp)
+setorder(vars_imp, -vars_imp)
+
+#importancia de las variables
+
+library(ggpubr) 
+ggbarplot(vars_imp[1:10],
+          x = "myvar", y = "vars_imp",
+          #fill  = 'myvar',
+          color = "blue",             # Set bar border colors to white
+          palette = "jco",            # jco journal color palett. see ?ggpar
+          sort.val = "asc",          # Sort the value in descending order
+          sort.by.groups = FALSE,     # Don't sort inside each group
+          x.text.angle = 90,          # Rotate vertically x axis texts
+          ylab = "Importancia",
+          xlab = 'Variable', 
+          #legend.title = "MPG Group",
+          rotate = TRUE,
+          ggtheme = theme_minimal()
+          )
+
+#evaluar modelo
+valor_pred <- predict(fit, data = my_test1)
+
+pred_valid_RANGER <- valor_pred$predictions
+cfm <- as.data.frame(table(Obj = my_test1$cluster, Pred = pred_valid_RANGER))
+cfm
+
+
+# Error de clasificacion
+errclasRANGER <- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasRANGER ))
+
+# Matriz de confusion
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+
+predRANGER = mean(pred_valid_RANGER == my_test1$cluster)
+print(paste0("Porcentaje de acierto/Accuracy: ",predRANGER ))
+
+
+pred1 <- prediction(as.numeric(pred_valid_RANGER), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+z7 <-data.frame(modelo = ('ranger'),
+                        accuracy =c(predRANGER),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasRANGER)
+                        )
+RESULTADOS <-rbind(RESULTADOS,z7)
+
+```
+
+
+## 8.11 Extreme Gradient Boosting
+
+
+```{r xgb, warning=FALSE}
+
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+
+#Hyper parametrox
+cv.ctrl <- trainControl(method = "repeatedcv", repeats = 1,number = 3, 
+                        #summaryFunction = twoClassSummary,
+                        classProbs = FALSE,
+                        allowParallel=T)
+
+xgb.grid <- expand.grid(nrounds = 1000,
+            max_depth = c(2,4,6,10),
+            eta = c(0.05,0.1,0.2,0.5,1),
+            gamma = c(0.1, 0.3),
+            colsample_bytree = c(0.3, 0.5 , 0.7 ),
+            min_child_weight = c(1, 3,5,7),
+            subsample = c(0.25, 0.5,0.75,1))
+
+
+set.seed(1234)
+ 
+#Se comenta y descarga del modelo ya realizado, ya que dura más de 1hora
+#xgb_tune1 <- train(as.factor(cluster) ~., data=my_train1, method="xgbTree", trControl=cv.ctrl, tuneGrid=xgb.grid, verbose=T, metric="Kappa", nthread =3)
+
+#saveRDS(xgb_tune1, file = "xgb_tune1.rds")
+
+xgb_tune1 <- readRDS(url('https://github.com/Juanmick/TFM/blob/master/xgb_tune1.rds?raw=true'))
+
+# Best tuning parameter
+xgb_tune1$bestTune
+
+set.seed(1234)
+
+# Make predictions on the test data
+pred_valid_XGB <- xgb_tune1 %>% predict(my_test1)
+
+
+cfm <- as.data.frame(table(Obj = my_test1$cluster, Pred = pred_valid_XGB))
+cfm
+
+# Errores de clasificacion
+errclasXGB <- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasXGB ))
+
+# Matriz de confusion
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+
+predXGB = mean(pred_valid_XGB == my_test1$cluster)
+print(paste0("Porcentaje de acierto/Accuracy: ",predXGB ))
+
+pred1 <- prediction(as.numeric(pred_valid_XGB), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+z8 <-data.frame(modelo = ('xgb'),
+                        accuracy =c(predXGB),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasXGB)
+                        )
+RESULTADOS <-rbind(RESULTADOS,z8)
+
+#variables importantes
+varImp(xgb_tune1)
+
+```
+
+
+## 8.12 Gradient Boosting Machine
+
+
+```{r gbm, warning=FALSE}
+
+
+my_test1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_test1.rds?raw=true"))
+my_train1 <- readRDS(url("https://github.com/Juanmick/TFM/blob/master/my_train1.rds?raw=true"))
+
+
+my_test1$cluster <- as.factor(my_test1$cluster)
+my_train1$cluster <- as.factor(my_train1$cluster)
+
+
+set.seed(1234)
+#fold cross validation para validar modelos
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           ## repeated ten times
+                           repeats = 10)
+
+set.seed(1234)
+gbmFit1 <- train(cluster~ ., data = my_train1, method = "gbm", trControl = fitControl, verbose = FALSE)
+                 ## This last option is actually one
+                 ## for gbm() that passes through
+                 
+gbmFit1
+
+#mejor interaction.depth 2
+trellis.par.set(caretTheme())
+plot(gbmFit1)  
+
+#100 arboles y 2 iteraciones,shrinkage = 0.1 y  n.minobsinnode = 10.
+trellis.par.set(caretTheme())
+plot(gbmFit1, metric = "Kappa", plotType = "level",
+     scales = list(x = list(rot = 90)))
+
+set.seed(1234)
+pred_valid_GBM <- predict(gbmFit1, my_test1)
+
+
+cfm <- as.data.frame(table(Obj = my_test1$cluster, Pred = pred_valid_GBM))
+cfm
+
+# Error de clasificacion
+errclasGBM <- cfm[2,3]+cfm[3,3]
+print(paste0("Errores de clasificación: ",errclasGBM ))
+
+# Matriz de confusion
+plot_confusion_matrix(cfm, 
+                      targets_col = "Obj", 
+                      predictions_col = "Pred",
+                      counts_col = "Freq")
+
+
+predGBM = mean(pred_valid_GBM == my_test1$cluster)
+print(paste0("Porcentaje de acierto/Accuracy: ",predGBM ))
+
+pred1 <- prediction(as.numeric(pred_valid_GBM), as.numeric(my_test1$cluster))
+
+# CURVA ROC 'False positive rate' vs. 'True positive rate' -> CUANTO MAS ARRIBA A LA IZQUIERDA MEJOR
+ROC.perf <- performance(pred1, "tpr", "fpr");
+plot (ROC.perf);
+
+# AREA BAJO LA CURVA ROC      -> MEJOR CUANTO MAS CERCANO A 1 Y AL MENOS SUPERIOR A 0.7
+auc.tmp <- performance(pred1,"auc");
+auc <- as.numeric(auc.tmp@y.values)
+print(paste0("Valor AUC: ",auc ))
+
+
+#¿Que proporcion de los clasificados del grupo X lo son realmente? ALTA = POCOS FALSOS POSITIVOS
+
+#Precision grupo 1
+prec1 = cfm[1,3]/(cfm[1,3]+cfm[3,3])
+print(paste0("Precision Grupo 1: ",prec1 ))
+
+#Precision grupo 2
+prec2 = cfm[4,3]/(cfm[4,3]+cfm[2,3])
+print(paste0("Precision Grupo 2: ",prec2 ))
+
+#¿Que proporcion de los que son del grupo X se clasifican como tal? ALTA = POCOS FALSOS NEGATIVOS
+
+# RECALL GRUPO 1
+rec1 = cfm[1,3]/(cfm[1,3]+cfm[2,3])
+print(paste0("Recall Grupo 1: ",rec1 ))
+
+# RECALL GRUPO 2
+rec2 = cfm[4,3]/(cfm[3,3]+cfm[4,3])
+print(paste0("Recall Grupo 2: ",rec2 ))
+
+#F1 SCORE GRUPO 1
+f1gr1 = 2 * prec1 * rec1 / (prec1 + rec1)
+print(paste0("F1 score Grupo 1: ",f1gr1 ))
+
+#F2 SCORE GRUPO 2
+f1gr2 = 2 * prec2 * rec2 / (prec2 + rec2)
+print(paste0("F1 score Grupo 2: ",f1gr2 ))
+
+
+z9 <-data.frame(modelo = ('gbm'),
+                        accuracy =c(predGBM),
+                        AUC =c(auc),
+                        precision1 =c(prec1),
+                        precision2 =c(prec2),
+                        recall1 =c(rec1),
+                        recall2 =c(rec2),
+                        f1grupo1 =c(f1gr1),
+                        f1grupo2 =c(f1gr2),
+                        errorClas =c(errclasGBM)
+                        )
+RESULTADOS <-rbind(RESULTADOS,z9)
+```
+
+
+# 9. Resultados 
+
+
+```{r resultados, warning=FALSE}
+
+
+kable(RESULTADOS[order(-RESULTADOS$accuracy),], digits = 2)
+
+#EXPORTAMOS RESULTADOS A UN EXCEL
+#library("writexl")
+#write_xlsx(RESULTADOS,"C:\\TFM\\resultados.xlsx")
+
+```
+
